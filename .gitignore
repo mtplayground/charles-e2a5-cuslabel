@@ -1,8 +1,14 @@
 target/
 node_modules/
+dist/
+apps/*/dist/
+packages/*/dist/
 .gh_token
 .claude/
 .database_url
+.env.production
+.db_decision
+.storage_decision
 .task_id
 .container_name
 .app_name

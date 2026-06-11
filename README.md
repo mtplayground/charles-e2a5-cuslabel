@@ -1,1 +1,21 @@
 # charles-e2a5-cuslabel
+
+React, Tailwind, and Node.js/Express monorepo scaffold.
+
+## Workspace
+
+- `apps/web` - Vite React frontend with Tailwind.
+- `apps/api` - Express backend listening on `0.0.0.0:8080` by default.
+- `packages/shared` - Shared TypeScript types and utilities.
+
+## Scripts
+
+```bash
+npm install
+npm run dev
+npm run build
+npm start
+```
+
+The frontend dev server runs on port `5173` and proxies `/api` requests to the
+backend on port `8080`.
