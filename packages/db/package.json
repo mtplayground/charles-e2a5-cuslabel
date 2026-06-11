@@ -1,0 +1,30 @@
+{
+  "name": "@cuslabel/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
+    "migrate:status": "prisma migrate status --schema prisma/schema.prisma",
+    "build": "npm run db:generate && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0",
+    "typescript": "^5.6.3"
+  }
+}
