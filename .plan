@@ -1,0 +1,44 @@
+# Architecture plan
+
+Product source: GitHub issues for `mtplayground/charles-e2a5-cuslabel`. No `PRODUCT.md` is present in the checkout at setup time, so later sessions should re-check for one before naming or copy decisions.
+
+## Module structure
+
+- `apps/web`: React + TypeScript + Tailwind frontend. Route-level views for project dashboard, project image gallery, annotation workspace, class manager, and export panel.
+- `apps/api`: Node.js + Express + TypeScript backend. REST routes grouped by resource: projects, images, label classes, annotations, exports.
+- `packages/shared`: Shared TypeScript contracts, Zod schemas, API response shapes, annotation geometry types, COCO export types, and constants.
+- `packages/db`: Prisma schema, migrations, generated client wrapper, seed/test helpers, and database access utilities.
+- `packages/storage`: S3-compatible Object Storage client, upload/download helpers, object key conventions, and environment validation.
+- `tests/e2e`: End-to-end coverage for create project, upload image, annotate box and polyline, and export COCO JSON.
+- Root tooling: npm workspaces, shared TypeScript config, ESLint, Prettier, scripts for dev/build/test/lint, and `.env.example`.
+
+## Shared domain types
+
+- `Project`: id, name, timestamps, derived image/annotation counts.
+- `Image`: id, projectId, original filename, storage key, width, height, MIME type, size, timestamps, optional metadata.
+- `LabelClass`: id, projectId, name, color, timestamps.
+- `Annotation`: id, imageId, classId, type (`box` or `polyline`), geometry JSON, timestamps.
+- `BoxGeometry`: x, y, width, height in image pixel coordinates.
+- `PolylineGeometry`: ordered points in image pixel coordinates.
+- `CocoExport`: images, categories, annotations assembled from projects, label classes, images, and annotations.
+
+## Issue dependencies
+
+- Foundation: #1 repo structure, #2 TypeScript/lint/format, #3 Prisma/PostgreSQL, #4 Object Storage/env.
+- Project flow: #5 project model -> #6 project API -> #7 dashboard UI.
+- Image flow: #8 image model + #4 storage -> #9 upload/list API -> #10 gallery UI.
+- Label class flow: #11 class model -> #12 class API -> #13 class manager UI.
+- Annotation flow: #14 annotation model depends on images/classes -> #15 annotation API -> #16 Konva canvas -> #17 boxes and #18 polylines.
+- Export flow: #19 COCO generation from persisted data -> #20 download API -> #21 export panel.
+- Hardening and release: #22 E2E core flow, #23 validation/error review, #24 deployment docs.
+
+## Key design decisions
+
+- Use a single TypeScript monorepo so frontend, backend, database, storage, and shared contracts evolve together across issue-sized increments.
+- Keep REST endpoints resource-oriented and validate inputs with shared Zod schemas at the API boundary.
+- Store uploaded image bytes in Object Storage and only metadata/storage keys in PostgreSQL.
+- Store annotation geometry in image pixel coordinates, not canvas coordinates, so zoom/pan and responsive rendering do not affect persisted data.
+- Use Prisma relations for project -> images/classes -> annotations, with cascading or explicit delete behavior decided during model implementation.
+- Keep the annotation canvas state separate from API persistence helpers; Konva components should render/edit geometry while shared mappers convert to API payloads.
+- Generate COCO exports on demand from database records instead of storing export artifacts initially.
+- Prefer focused tests per resource while building, then add the issue #22 Playwright-style E2E path once the core UI/API flow exists.
