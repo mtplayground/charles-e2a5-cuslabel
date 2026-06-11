@@ -7,6 +7,8 @@ import {
   checkObjectStorageConnection,
   requireObjectStorageConfig
 } from "@cuslabel/storage";
+import { isHttpError } from "./errors.js";
+import { projectsRouter } from "./projects.js";
 
 requireDatabaseUrl();
 requireObjectStorageConfig();
@@ -17,6 +19,8 @@ const host = process.env.HOST ?? "0.0.0.0";
 
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+
+app.use("/api/projects", projectsRouter);
 
 app.get("/api/health", async (_req, res, next) => {
   try {
@@ -41,11 +45,23 @@ app.get("/api", (_req, res) => {
 });
 
 const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
-  console.error("Unhandled API error", {
-    name: err instanceof Error ? err.name : "UnknownError",
-    message: err instanceof Error ? err.message : String(err),
-    stack: err instanceof Error ? err.stack : undefined
-  });
+  const statusCode = isHttpError(err) ? err.statusCode : 500;
+
+  if (statusCode >= 500) {
+    console.error("Unhandled API error", {
+      name: err instanceof Error ? err.name : "UnknownError",
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined
+    });
+  }
+
+  if (isHttpError(err)) {
+    res.status(err.statusCode).json({
+      error: err.message,
+      details: err.details
+    });
+    return;
+  }
 
   res.status(500).json({
     error: "Internal server error"
