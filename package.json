@@ -7,15 +7,19 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run build -w @cuslabel/shared && concurrently -n api,web -c blue,green \"npm run dev -w @cuslabel/api\" \"npm run dev -w @cuslabel/web\"",
-    "build": "npm run build -w @cuslabel/shared && npm run build -w @cuslabel/api && npm run build -w @cuslabel/web",
-    "typecheck": "npm run typecheck -w @cuslabel/shared && npm run typecheck -w @cuslabel/api && npm run typecheck -w @cuslabel/web",
+    "dev": "npm run build -w @cuslabel/shared && npm run build -w @cuslabel/db && concurrently -n api,web -c blue,green \"npm run dev -w @cuslabel/api\" \"npm run dev -w @cuslabel/web\"",
+    "build": "npm run build -w @cuslabel/shared && npm run build -w @cuslabel/db && npm run build -w @cuslabel/api && npm run build -w @cuslabel/web",
+    "typecheck": "npm run build -w @cuslabel/shared && npm run build -w @cuslabel/db && npm run typecheck -w @cuslabel/shared && npm run typecheck -w @cuslabel/db && npm run typecheck -w @cuslabel/api && npm run typecheck -w @cuslabel/web",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
+    "db:generate": "npm run db:generate -w @cuslabel/db",
+    "db:migrate:deploy": "npm run migrate:deploy -w @cuslabel/db",
+    "db:migrate:dev": "npm run migrate:dev -w @cuslabel/db",
+    "db:migrate:status": "npm run migrate:status -w @cuslabel/db",
     "start": "npm run start -w @cuslabel/api",
-    "clean": "npm run clean -w @cuslabel/shared && npm run clean -w @cuslabel/api && npm run clean -w @cuslabel/web"
+    "clean": "npm run clean -w @cuslabel/shared && npm run clean -w @cuslabel/db && npm run clean -w @cuslabel/api && npm run clean -w @cuslabel/web"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

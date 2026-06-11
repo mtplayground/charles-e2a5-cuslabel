@@ -12,6 +12,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@cuslabel/db": "0.1.0",
     "@cuslabel/shared": "0.1.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
