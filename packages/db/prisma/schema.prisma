@@ -16,3 +16,16 @@ model AppMetadata {
 
   @@map("app_metadata")
 }
+
+model Project {
+  id               String   @id @default(cuid())
+  name             String
+  imageCount       Int      @default(0) @map("image_count")
+  labelClassCount  Int      @default(0) @map("label_class_count")
+  annotationCount  Int      @default(0) @map("annotation_count")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt], map: "projects_created_at_idx")
+  @@map("projects")
+}
