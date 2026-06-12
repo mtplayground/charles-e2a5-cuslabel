@@ -8,7 +8,12 @@ import {
   requireObjectStorageConfig
 } from "@cuslabel/storage";
 import { annotationsRouter } from "./annotations.js";
-import { isHttpError } from "./errors.js";
+import {
+  HttpError,
+  isHttpError,
+  isJsonParseError,
+  malformedJson
+} from "./errors.js";
 import { exportsRouter } from "./exports.js";
 import { imagesRouter } from "./images.js";
 import { labelClassesRouter } from "./labelClasses.js";
@@ -52,8 +57,20 @@ app.get("/api", (_req, res) => {
   });
 });
 
-const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
-  const statusCode = isHttpError(err) ? err.statusCode : 500;
+app.use("/api", (_req, _res, next) => {
+  next(new HttpError(404, "API route not found."));
+});
+
+const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+
+  const normalizedError = isJsonParseError(err) ? malformedJson() : err;
+  const statusCode = isHttpError(normalizedError)
+    ? normalizedError.statusCode
+    : 500;
 
   if (statusCode >= 500) {
     console.error("Unhandled API error", {
@@ -63,16 +80,18 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     });
   }
 
-  if (isHttpError(err)) {
-    res.status(err.statusCode).json({
-      error: err.message,
-      details: err.details
+  if (isHttpError(normalizedError)) {
+    res.status(normalizedError.statusCode).json({
+      error: normalizedError.message,
+      status: normalizedError.statusCode,
+      details: normalizedError.details
     });
     return;
   }
 
   res.status(500).json({
-    error: "Internal server error"
+    error: "Internal server error",
+    status: 500
   });
 };
 

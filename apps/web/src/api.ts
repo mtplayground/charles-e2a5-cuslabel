@@ -39,6 +39,11 @@ interface AnnotationResponse {
   annotation: AnnotationDto;
 }
 
+interface ErrorResponse {
+  error?: string;
+  details?: unknown;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly details: unknown;
@@ -48,6 +53,60 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
     this.details = details;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function firstString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstString(item);
+
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  if (isRecord(value)) {
+    for (const item of Object.values(value)) {
+      const found = firstString(item);
+
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function readErrorResponse(
+  response: Response
+): Promise<{ message: string; details: unknown }> {
+  const fallback = `Request failed with status ${response.status}.`;
+
+  try {
+    const body = (await response.json()) as ErrorResponse;
+    const message = body.error ?? fallback;
+    const detailMessage = firstString(body.details);
+
+    return {
+      message: detailMessage ? `${message} ${detailMessage}` : message,
+      details: body.details
+    };
+  } catch {
+    return {
+      message: fallback,
+      details: undefined
+    };
   }
 }
 
@@ -61,19 +120,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    let message = `Request failed with status ${response.status}.`;
-    let details: unknown;
-
-    try {
-      const body = (await response.json()) as {
-        error?: string;
-        details?: unknown;
-      };
-      message = body.error ?? message;
-      details = body.details;
-    } catch {
-      details = undefined;
-    }
+    const { message, details } = await readErrorResponse(response);
 
     throw new ApiError(response.status, message, details);
   }
@@ -88,19 +135,7 @@ async function requestNoContent(
   const response = await fetch(path, init);
 
   if (!response.ok) {
-    let message = `Request failed with status ${response.status}.`;
-    let details: unknown;
-
-    try {
-      const body = (await response.json()) as {
-        error?: string;
-        details?: unknown;
-      };
-      message = body.error ?? message;
-      details = body.details;
-    } catch {
-      details = undefined;
-    }
+    const { message, details } = await readErrorResponse(response);
 
     throw new ApiError(response.status, message, details);
   }

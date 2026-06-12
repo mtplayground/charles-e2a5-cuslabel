@@ -180,11 +180,37 @@ async function deleteProject(projectId) {
   assert.equal(response.status, 204);
 }
 
+async function assertValidationErrorsAreJson() {
+  const malformedResponse = await fetch(`${apiBaseUrl}/api/projects`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: '{"name":'
+  });
+  assert.equal(malformedResponse.status, 400);
+  assert.match(malformedResponse.headers.get("content-type") ?? "", /json/);
+  assert.deepEqual(await malformedResponse.json(), {
+    error: "Malformed JSON request body.",
+    status: 400
+  });
+
+  const missingRouteResponse = await fetch(`${apiBaseUrl}/api/not-a-route`);
+  assert.equal(missingRouteResponse.status, 404);
+  assert.match(missingRouteResponse.headers.get("content-type") ?? "", /json/);
+  assert.deepEqual(await missingRouteResponse.json(), {
+    error: "API route not found.",
+    status: 404
+  });
+}
+
 test("core flow creates data and exports COCO JSON", async () => {
   const api = await startApi();
   let projectId;
 
   try {
+    await assertValidationErrorsAreJson();
+
     const project = await createProject(`E2E core flow ${Date.now()}`);
     projectId = project.id;
 
