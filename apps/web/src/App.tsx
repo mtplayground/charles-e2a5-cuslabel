@@ -5,26 +5,36 @@ import {
   ImageIcon,
   ImageOff,
   LoaderCircle,
+  Palette,
   Pencil,
   Plus,
   RefreshCw,
   Save,
+  Tags,
   Trash2,
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  createLabelClassRequestSchema,
+  labelClassColorSchema,
+  labelClassNameSchema,
   projectNameSchema,
   type ImageDto,
+  type LabelClassDto,
   type ProjectDto
 } from "@cuslabel/shared";
 import {
   ApiError,
+  createLabelClass,
   createProject,
+  deleteLabelClass,
   deleteProject,
+  listProjectClasses,
   listProjectImages,
   listProjects,
-  renameProject
+  renameProject,
+  updateLabelClass
 } from "./api";
 
 type LoadState = "idle" | "loading" | "ready";
@@ -88,13 +98,22 @@ export function App() {
   );
   const [images, setImages] = useState<ImageDto[]>([]);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [labelClasses, setLabelClasses] = useState<LabelClassDto[]>([]);
+  const [activeClassId, setActiveClassId] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [galleryState, setGalleryState] = useState<LoadState>("idle");
+  const [classesState, setClassesState] = useState<LoadState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [galleryError, setGalleryError] = useState<string | null>(null);
+  const [classesError, setClassesError] = useState<string | null>(null);
   const [createName, setCreateName] = useState("");
+  const [className, setClassName] = useState("");
+  const [classColor, setClassColor] = useState("#22c55e");
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [editingClassId, setEditingClassId] = useState<string | null>(null);
+  const [editingClassName, setEditingClassName] = useState("");
+  const [editingClassColor, setEditingClassColor] = useState("#22c55e");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const selectedProject = useMemo(
@@ -105,6 +124,13 @@ export function App() {
   const selectedImage = useMemo(
     () => images.find((image) => image.id === selectedImageId) ?? null,
     [images, selectedImageId]
+  );
+
+  const activeClass = useMemo(
+    () =>
+      labelClasses.find((labelClass) => labelClass.id === activeClassId) ??
+      null,
+    [activeClassId, labelClasses]
   );
 
   const progress = annotationProgress(selectedProject);
@@ -123,7 +149,9 @@ export function App() {
       ) {
         setSelectedProjectId(null);
         setSelectedImageId(null);
+        setActiveClassId(null);
         setImages([]);
+        setLabelClasses([]);
       }
     } catch (err) {
       setError(errorMessage(err));
@@ -155,6 +183,32 @@ export function App() {
     }
   }, []);
 
+  const refreshClasses = useCallback(async (projectId: string) => {
+    setClassesState("loading");
+    setClassesError(null);
+
+    try {
+      const nextClasses = await listProjectClasses(projectId);
+      setLabelClasses(nextClasses);
+      setActiveClassId((current) => {
+        if (
+          current &&
+          nextClasses.some((labelClass) => labelClass.id === current)
+        ) {
+          return current;
+        }
+
+        return nextClasses[0]?.id ?? null;
+      });
+    } catch (err) {
+      setLabelClasses([]);
+      setActiveClassId(null);
+      setClassesError(errorMessage(err));
+    } finally {
+      setClassesState("ready");
+    }
+  }, []);
+
   useEffect(() => {
     void refreshProjects();
   }, [refreshProjects]);
@@ -163,13 +217,18 @@ export function App() {
     if (!selectedProjectId) {
       setImages([]);
       setSelectedImageId(null);
+      setLabelClasses([]);
+      setActiveClassId(null);
       setGalleryState("idle");
+      setClassesState("idle");
       setGalleryError(null);
+      setClassesError(null);
       return;
     }
 
     void refreshImages(selectedProjectId);
-  }, [refreshImages, selectedProjectId]);
+    void refreshClasses(selectedProjectId);
+  }, [refreshClasses, refreshImages, selectedProjectId]);
 
   async function handleCreateProject(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -198,7 +257,9 @@ export function App() {
   function openProject(projectId: string) {
     setSelectedProjectId(projectId);
     setSelectedImageId(null);
+    setActiveClassId(null);
     setGalleryError(null);
+    setClassesError(null);
   }
 
   function beginRename(project: ProjectDto) {
@@ -255,7 +316,9 @@ export function App() {
       if (selectedProjectId === project.id) {
         setSelectedProjectId(null);
         setSelectedImageId(null);
+        setActiveClassId(null);
         setImages([]);
+        setLabelClasses([]);
       }
     } catch (err) {
       setError(errorMessage(err));
@@ -264,9 +327,135 @@ export function App() {
     }
   }
 
+  function updateProjectCount(projectId: string, delta: number) {
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === projectId
+          ? {
+              ...project,
+              labelClassCount: Math.max(0, project.labelClassCount + delta)
+            }
+          : project
+      )
+    );
+  }
+
+  async function handleCreateClass(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const parsed = createLabelClassRequestSchema.safeParse({
+      name: className,
+      color: classColor
+    });
+
+    if (!selectedProject || !parsed.success) {
+      setClassesError(
+        parsed.success
+          ? "Open a project before creating classes."
+          : (parsed.error.issues[0]?.message ?? "Invalid class.")
+      );
+      return;
+    }
+
+    setPendingAction("createClass");
+    setClassesError(null);
+
+    try {
+      const labelClass = await createLabelClass(
+        selectedProject.id,
+        parsed.data
+      );
+      setLabelClasses((current) => [...current, labelClass]);
+      setActiveClassId(labelClass.id);
+      updateProjectCount(selectedProject.id, 1);
+      setClassName("");
+      setClassColor(labelClass.color);
+    } catch (err) {
+      setClassesError(errorMessage(err));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  function beginEditClass(labelClass: LabelClassDto) {
+    setEditingClassId(labelClass.id);
+    setEditingClassName(labelClass.name);
+    setEditingClassColor(labelClass.color);
+    setClassesError(null);
+  }
+
+  function cancelEditClass() {
+    setEditingClassId(null);
+    setEditingClassName("");
+    setEditingClassColor("#22c55e");
+  }
+
+  async function handleUpdateClass(labelClassId: string) {
+    const parsedName = labelClassNameSchema.safeParse(editingClassName);
+    const parsedColor = labelClassColorSchema.safeParse(editingClassColor);
+
+    if (!parsedName.success) {
+      setClassesError(parsedName.error.issues[0]?.message ?? "Invalid name.");
+      return;
+    }
+
+    if (!parsedColor.success) {
+      setClassesError(parsedColor.error.issues[0]?.message ?? "Invalid color.");
+      return;
+    }
+
+    setPendingAction(`updateClass:${labelClassId}`);
+    setClassesError(null);
+
+    try {
+      const labelClass = await updateLabelClass(labelClassId, {
+        name: parsedName.data,
+        color: parsedColor.data
+      });
+      setLabelClasses((current) =>
+        current.map((item) => (item.id === labelClass.id ? labelClass : item))
+      );
+      cancelEditClass();
+    } catch (err) {
+      setClassesError(errorMessage(err));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleDeleteClass(labelClass: LabelClassDto) {
+    const confirmed = window.confirm(`Delete "${labelClass.name}"?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPendingAction(`deleteClass:${labelClass.id}`);
+    setClassesError(null);
+
+    try {
+      await deleteLabelClass(labelClass.id);
+      const nextClasses = labelClasses.filter(
+        (item) => item.id !== labelClass.id
+      );
+      setLabelClasses(nextClasses);
+      setActiveClassId((currentActive) =>
+        currentActive === labelClass.id
+          ? (nextClasses[0]?.id ?? null)
+          : currentActive
+      );
+      updateProjectCount(labelClass.projectId, -1);
+    } catch (err) {
+      setClassesError(errorMessage(err));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
   const isCreating = pendingAction === "create";
   const isInitialLoading = loadState === "loading";
   const isGalleryLoading = galleryState === "loading";
+  const isClassesLoading = classesState === "loading";
+  const isCreatingClass = pendingAction === "createClass";
 
   return (
     <main className="min-h-screen bg-stone-950 text-stone-100">
@@ -489,6 +678,201 @@ export function App() {
                   </div>
                 ) : null}
 
+                <section className="rounded-lg border border-stone-800 bg-stone-950 p-4">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div>
+                      <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-300">
+                        <Tags aria-hidden="true" size={15} />
+                        Class Manager
+                      </p>
+                      <p className="mt-2 text-sm text-stone-400">
+                        {labelClasses.length} classes / active class{" "}
+                        {activeClass ? activeClass.name : "none"}
+                      </p>
+                    </div>
+
+                    <form
+                      className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_72px_auto]"
+                      onSubmit={handleCreateClass}
+                    >
+                      <label className="sr-only" htmlFor="class-name">
+                        Class name
+                      </label>
+                      <input
+                        className="h-10 min-w-0 rounded-md border border-stone-700 bg-stone-900 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
+                        id="class-name"
+                        maxLength={80}
+                        onChange={(event) => setClassName(event.target.value)}
+                        placeholder="New class"
+                        value={className}
+                      />
+                      <label className="flex h-10 items-center rounded-md border border-stone-700 bg-stone-900 px-2">
+                        <span className="sr-only">Class color</span>
+                        <input
+                          className="h-7 w-full cursor-pointer rounded border-0 bg-transparent p-0"
+                          onChange={(event) =>
+                            setClassColor(event.target.value)
+                          }
+                          type="color"
+                          value={classColor}
+                        />
+                      </label>
+                      <button
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-emerald-500 px-3 text-sm font-semibold text-stone-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={isCreatingClass}
+                        type="submit"
+                      >
+                        <Plus aria-hidden="true" size={16} />
+                        Add
+                      </button>
+                    </form>
+                  </div>
+
+                  {classesError ? (
+                    <div className="mt-4 rounded-md border border-rose-700 bg-rose-950/70 px-3 py-2 text-sm text-rose-100">
+                      {classesError}
+                    </div>
+                  ) : null}
+
+                  {isClassesLoading ? (
+                    <div className="mt-4 flex min-h-24 items-center justify-center rounded-md border border-stone-800 bg-stone-900 text-sm text-stone-300">
+                      <LoaderCircle
+                        aria-hidden="true"
+                        className="mr-2 animate-spin"
+                        size={16}
+                      />
+                      Loading classes
+                    </div>
+                  ) : labelClasses.length === 0 ? (
+                    <div className="mt-4 flex min-h-24 items-center justify-center rounded-md border border-dashed border-stone-700 bg-stone-900/60 px-4 text-center text-sm text-stone-400">
+                      No classes
+                    </div>
+                  ) : (
+                    <div className="mt-4 grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+                      {labelClasses.map((labelClass) => {
+                        const isActiveClass = activeClassId === labelClass.id;
+                        const isEditingClass = editingClassId === labelClass.id;
+                        const isUpdatingClass =
+                          pendingAction === `updateClass:${labelClass.id}`;
+                        const isDeletingClass =
+                          pendingAction === `deleteClass:${labelClass.id}`;
+
+                        return (
+                          <article
+                            className={`rounded-md border p-3 transition ${
+                              isActiveClass
+                                ? "border-emerald-400 bg-emerald-400/10"
+                                : "border-stone-800 bg-stone-900 hover:border-stone-600"
+                            }`}
+                            key={labelClass.id}
+                          >
+                            {isEditingClass ? (
+                              <div className="grid gap-2">
+                                <input
+                                  className="h-9 min-w-0 rounded-md border border-stone-700 bg-stone-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
+                                  maxLength={80}
+                                  onChange={(event) =>
+                                    setEditingClassName(event.target.value)
+                                  }
+                                  value={editingClassName}
+                                />
+                                <div className="grid grid-cols-[56px_1fr] gap-2">
+                                  <label className="flex h-9 items-center rounded-md border border-stone-700 bg-stone-950 px-2">
+                                    <span className="sr-only">Edit color</span>
+                                    <input
+                                      className="h-6 w-full cursor-pointer rounded border-0 bg-transparent p-0"
+                                      onChange={(event) =>
+                                        setEditingClassColor(event.target.value)
+                                      }
+                                      type="color"
+                                      value={editingClassColor}
+                                    />
+                                  </label>
+                                  <input
+                                    className="h-9 min-w-0 rounded-md border border-stone-700 bg-stone-950 px-3 font-mono text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20"
+                                    onChange={(event) =>
+                                      setEditingClassColor(event.target.value)
+                                    }
+                                    value={editingClassColor}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                className="flex w-full min-w-0 items-center gap-3 text-left"
+                                onClick={() => setActiveClassId(labelClass.id)}
+                                type="button"
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className="h-8 w-8 shrink-0 rounded-md border border-white/20"
+                                  style={{ backgroundColor: labelClass.color }}
+                                />
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-semibold text-white">
+                                    {labelClass.name}
+                                  </span>
+                                  <span className="mt-1 block truncate font-mono text-xs text-stone-400">
+                                    {labelClass.color}
+                                  </span>
+                                </span>
+                              </button>
+                            )}
+
+                            <div className="mt-3 flex gap-2">
+                              {isEditingClass ? (
+                                <>
+                                  <button
+                                    className="inline-flex h-8 items-center justify-center rounded-md bg-emerald-500 px-3 text-sm font-medium text-stone-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                                    disabled={isUpdatingClass}
+                                    onClick={() =>
+                                      void handleUpdateClass(labelClass.id)
+                                    }
+                                    title="Save class"
+                                    type="button"
+                                  >
+                                    <Save aria-hidden="true" size={15} />
+                                  </button>
+                                  <button
+                                    className="inline-flex h-8 items-center justify-center rounded-md border border-stone-700 px-3 text-sm text-stone-200 transition hover:border-stone-500 hover:bg-stone-800"
+                                    onClick={cancelEditClass}
+                                    title="Cancel"
+                                    type="button"
+                                  >
+                                    <X aria-hidden="true" size={15} />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    className="inline-flex h-8 items-center justify-center rounded-md border border-stone-700 px-3 text-sm text-stone-200 transition hover:border-amber-500 hover:text-amber-200"
+                                    onClick={() => beginEditClass(labelClass)}
+                                    title="Edit class"
+                                    type="button"
+                                  >
+                                    <Palette aria-hidden="true" size={15} />
+                                  </button>
+                                  <button
+                                    className="inline-flex h-8 items-center justify-center rounded-md border border-stone-700 px-3 text-sm text-stone-200 transition hover:border-rose-500 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                    disabled={isDeletingClass}
+                                    onClick={() =>
+                                      void handleDeleteClass(labelClass)
+                                    }
+                                    title="Delete class"
+                                    type="button"
+                                  >
+                                    <Trash2 aria-hidden="true" size={15} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+
                 {isGalleryLoading ? (
                   <div className="flex min-h-80 items-center justify-center rounded-md border border-stone-800 bg-stone-950 text-sm text-stone-300">
                     <LoaderCircle
@@ -591,6 +975,29 @@ export function App() {
                           </div>
 
                           <dl className="mt-4 grid gap-3">
+                            <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+                              <dt className="text-sm text-stone-400">
+                                Active class
+                              </dt>
+                              <dd className="flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
+                                {activeClass ? (
+                                  <>
+                                    <span
+                                      aria-hidden="true"
+                                      className="h-4 w-4 shrink-0 rounded border border-white/20"
+                                      style={{
+                                        backgroundColor: activeClass.color
+                                      }}
+                                    />
+                                    <span className="truncate">
+                                      {activeClass.name}
+                                    </span>
+                                  </>
+                                ) : (
+                                  "None"
+                                )}
+                              </dd>
+                            </div>
                             <div className="flex items-center justify-between border-b border-stone-800 pb-3">
                               <dt className="text-sm text-stone-400">Status</dt>
                               <dd className="text-sm font-semibold text-amber-200">
