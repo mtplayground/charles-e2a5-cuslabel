@@ -18,14 +18,15 @@ model AppMetadata {
 }
 
 model Project {
-  id               String   @id @default(cuid())
-  name             String
-  imageCount       Int      @default(0) @map("image_count")
-  labelClassCount  Int      @default(0) @map("label_class_count")
-  annotationCount  Int      @default(0) @map("annotation_count")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  images           Image[]
+  id              String       @id @default(cuid())
+  name            String
+  imageCount      Int          @default(0) @map("image_count")
+  labelClassCount Int          @default(0) @map("label_class_count")
+  annotationCount Int          @default(0) @map("annotation_count")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  images          Image[]
+  labelClasses    LabelClass[]
 
   @@index([createdAt], map: "projects_created_at_idx")
   @@map("projects")
@@ -44,4 +45,18 @@ model Image {
 
   @@index([projectId, createdAt], map: "images_project_id_created_at_idx")
   @@map("images")
+}
+
+model LabelClass {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  name      String
+  color     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name], map: "label_classes_project_id_name_key")
+  @@index([projectId, createdAt], map: "label_classes_project_id_created_at_idx")
+  @@map("label_classes")
 }
