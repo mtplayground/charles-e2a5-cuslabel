@@ -7,6 +7,7 @@ import {
   checkObjectStorageConnection,
   requireObjectStorageConfig
 } from "@cuslabel/storage";
+import { annotationsRouter } from "./annotations.js";
 import { isHttpError } from "./errors.js";
 import { imagesRouter } from "./images.js";
 import { labelClassesRouter } from "./labelClasses.js";
@@ -25,6 +26,7 @@ app.use(express.json({ limit: "1mb" }));
 app.use("/api/projects", projectsRouter);
 app.use("/api", imagesRouter);
 app.use("/api", labelClassesRouter);
+app.use("/api", annotationsRouter);
 
 app.get("/api/health", async (_req, res, next) => {
   try {
