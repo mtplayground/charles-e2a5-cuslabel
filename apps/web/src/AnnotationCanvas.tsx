@@ -1,12 +1,15 @@
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
+  Check,
   Maximize2,
   MousePointer2,
   Move,
+  Pencil,
   RotateCcw,
   Square,
   Trash2,
+  X,
   ZoomIn,
   ZoomOut
 } from "lucide-react";
@@ -15,6 +18,8 @@ import {
   Image as KonvaImage,
   Label,
   Layer,
+  Line,
+  Circle,
   Rect,
   Stage,
   Tag,
@@ -25,7 +30,9 @@ import type {
   AnnotationDto,
   BoxAnnotationGeometryDto,
   ImageDto,
-  LabelClassDto
+  LabelClassDto,
+  PolylineAnnotationGeometryDto,
+  PolylinePointDto
 } from "@cuslabel/shared";
 import {
   ApiError,
@@ -61,7 +68,13 @@ interface BoxDraft {
 }
 
 type CanvasMode = "draw" | "pan";
+type DrawTool = "box" | "polyline";
 type LoadState = "idle" | "loading" | "ready";
+
+interface SelectedVertex {
+  annotationId: string;
+  index: number;
+}
 
 const minScale = 0.08;
 const maxScale = 12;
@@ -107,6 +120,12 @@ function isBoxAnnotation(
   return annotation.type === "BOX" && "width" in annotation.geometry;
 }
 
+function isPolylineAnnotation(
+  annotation: AnnotationDto
+): annotation is AnnotationDto & { geometry: PolylineAnnotationGeometryDto } {
+  return annotation.type === "POLYLINE" && "points" in annotation.geometry;
+}
+
 function normalizeBoxGeometry(
   geometry: BoxAnnotationGeometryDto,
   image: ImageDto
@@ -122,6 +141,89 @@ function normalizeBoxGeometry(
     width: clamp(geometry.width, minBoxSize, Math.max(minBoxSize, maxWidth)),
     height: clamp(geometry.height, minBoxSize, Math.max(minBoxSize, maxHeight))
   };
+}
+
+function normalizePoint(
+  point: PolylinePointDto,
+  image: ImageDto
+): PolylinePointDto {
+  return {
+    x: clamp(point.x, 0, image.width),
+    y: clamp(point.y, 0, image.height)
+  };
+}
+
+function normalizePolylineGeometry(
+  geometry: PolylineAnnotationGeometryDto,
+  image: ImageDto
+): PolylineAnnotationGeometryDto {
+  return {
+    points: geometry.points.map((point) => normalizePoint(point, image))
+  };
+}
+
+function flattenPoints(points: PolylinePointDto[]): number[] {
+  return points.flatMap((point) => [point.x, point.y]);
+}
+
+function squaredDistanceToSegment(
+  point: PolylinePointDto,
+  segmentStart: PolylinePointDto,
+  segmentEnd: PolylinePointDto
+): number {
+  const dx = segmentEnd.x - segmentStart.x;
+  const dy = segmentEnd.y - segmentStart.y;
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (lengthSquared === 0) {
+    const x = point.x - segmentStart.x;
+    const y = point.y - segmentStart.y;
+    return x * x + y * y;
+  }
+
+  const t = clamp(
+    ((point.x - segmentStart.x) * dx + (point.y - segmentStart.y) * dy) /
+      lengthSquared,
+    0,
+    1
+  );
+  const projected = {
+    x: segmentStart.x + t * dx,
+    y: segmentStart.y + t * dy
+  };
+  const x = point.x - projected.x;
+  const y = point.y - projected.y;
+  return x * x + y * y;
+}
+
+function insertPointAtNearestSegment(
+  points: PolylinePointDto[],
+  point: PolylinePointDto
+): PolylinePointDto[] {
+  if (points.length < 2) {
+    return [...points, point];
+  }
+
+  let insertIndex = 1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const segmentStart = points[index];
+    const segmentEnd = points[index + 1];
+
+    if (!segmentStart || !segmentEnd) {
+      continue;
+    }
+
+    const distance = squaredDistanceToSegment(point, segmentStart, segmentEnd);
+
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      insertIndex = index + 1;
+    }
+  }
+
+  return [...points.slice(0, insertIndex), point, ...points.slice(insertIndex)];
 }
 
 function geometryFromDraft(
@@ -176,14 +278,28 @@ export function AnnotationCanvas({
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<
     string | null
   >(null);
+  const [selectedVertex, setSelectedVertex] = useState<SelectedVertex | null>(
+    null
+  );
   const [draftBox, setDraftBox] = useState<BoxDraft | null>(null);
+  const [draftPolylinePoints, setDraftPolylinePoints] = useState<
+    PolylinePointDto[]
+  >([]);
+  const [previewPolylinePoint, setPreviewPolylinePoint] =
+    useState<PolylinePointDto | null>(null);
   const [mode, setMode] = useState<CanvasMode>("draw");
+  const [drawTool, setDrawTool] = useState<DrawTool>("box");
   const [annotationsState, setAnnotationsState] = useState<LoadState>("idle");
   const [annotationError, setAnnotationError] = useState<string | null>(null);
   const [savingAction, setSavingAction] = useState<string | null>(null);
 
   const boxAnnotations = useMemo(
     () => annotations.filter(isBoxAnnotation),
+    [annotations]
+  );
+
+  const polylineAnnotations = useMemo(
+    () => annotations.filter(isPolylineAnnotation),
     [annotations]
   );
 
@@ -195,10 +311,10 @@ export function AnnotationCanvas({
 
   const selectedAnnotation = useMemo(
     () =>
-      boxAnnotations.find(
+      annotations.find(
         (annotation) => annotation.id === selectedAnnotationId
       ) ?? null,
-    [boxAnnotations, selectedAnnotationId]
+    [annotations, selectedAnnotationId]
   );
 
   const draftGeometry = draftBox ? geometryFromDraft(draftBox, image) : null;
@@ -283,6 +399,33 @@ export function AnnotationCanvas({
     }
   }
 
+  async function persistPolylineUpdate(
+    annotation: AnnotationDto & { geometry: PolylineAnnotationGeometryDto },
+    geometry: PolylineAnnotationGeometryDto
+  ) {
+    if (geometry.points.length < 2) {
+      return;
+    }
+
+    setSavingAction(`update:${annotation.id}`);
+    setAnnotationError(null);
+
+    try {
+      const updated = await updateAnnotation(annotation.id, {
+        type: "POLYLINE",
+        labelClassId: annotation.labelClassId,
+        geometry: normalizePolylineGeometry(geometry, image)
+      });
+      setAnnotations((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item))
+      );
+    } catch (error) {
+      setAnnotationError(errorMessage(error));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
   async function handleCreateBox(geometry: BoxAnnotationGeometryDto) {
     if (!activeClass) {
       setAnnotationError("Select a class before drawing boxes.");
@@ -300,6 +443,7 @@ export function AnnotationCanvas({
       });
       setAnnotations((current) => [...current, annotation]);
       setSelectedAnnotationId(annotation.id);
+      setSelectedVertex(null);
       onAnnotationCountChange(image.projectId, 1);
     } catch (error) {
       setAnnotationError(errorMessage(error));
@@ -308,8 +452,68 @@ export function AnnotationCanvas({
     }
   }
 
+  async function handleCreatePolyline(points: PolylinePointDto[]) {
+    if (!activeClass) {
+      setAnnotationError("Select a class before drawing polylines.");
+      return;
+    }
+
+    if (points.length < 2) {
+      return;
+    }
+
+    setSavingAction("create");
+    setAnnotationError(null);
+
+    try {
+      const annotation = await createAnnotation(image.id, {
+        type: "POLYLINE",
+        labelClassId: activeClass.id,
+        geometry: normalizePolylineGeometry({ points }, image)
+      });
+      setAnnotations((current) => [...current, annotation]);
+      setSelectedAnnotationId(annotation.id);
+      setSelectedVertex(null);
+      onAnnotationCountChange(image.projectId, 1);
+    } catch (error) {
+      setAnnotationError(errorMessage(error));
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  function finishDraftPolyline() {
+    if (draftPolylinePoints.length >= 2) {
+      void handleCreatePolyline(draftPolylinePoints);
+    }
+
+    setDraftPolylinePoints([]);
+    setPreviewPolylinePoint(null);
+  }
+
+  function cancelDraftPolyline() {
+    setDraftPolylinePoints([]);
+    setPreviewPolylinePoint(null);
+  }
+
   async function handleDeleteSelected() {
     if (!selectedAnnotation) {
+      return;
+    }
+
+    if (
+      selectedVertex?.annotationId === selectedAnnotation.id &&
+      isPolylineAnnotation(selectedAnnotation)
+    ) {
+      if (selectedAnnotation.geometry.points.length <= 2) {
+        return;
+      }
+
+      const nextPoints = selectedAnnotation.geometry.points.filter(
+        (_point, index) => index !== selectedVertex.index
+      );
+      setSelectedVertex(null);
+      await persistPolylineUpdate(selectedAnnotation, { points: nextPoints });
       return;
     }
 
@@ -330,12 +534,10 @@ export function AnnotationCanvas({
     }
   }
 
-  function handlePointerDown(event: KonvaEventObject<MouseEvent | TouchEvent>) {
-    if (
-      mode !== "draw" ||
-      !activeClass ||
-      event.target !== event.target.getStage()
-    ) {
+  function handlePointerDown(
+    _event: KonvaEventObject<MouseEvent | TouchEvent>
+  ) {
+    if (mode !== "draw" || !activeClass) {
       return;
     }
 
@@ -347,6 +549,15 @@ export function AnnotationCanvas({
 
     const point = stagePointToImagePoint(pointer);
     setSelectedAnnotationId(null);
+    setSelectedVertex(null);
+
+    if (drawTool === "polyline") {
+      setDraftPolylinePoints((current) => [...current, point]);
+      setPreviewPolylinePoint(null);
+      return;
+    }
+
+    setSelectedAnnotationId(null);
     setDraftBox({
       startX: point.x,
       startY: point.y,
@@ -356,10 +567,6 @@ export function AnnotationCanvas({
   }
 
   function handlePointerMove() {
-    if (!draftBox) {
-      return;
-    }
-
     const pointer = stageRef.current?.getPointerPosition();
 
     if (!pointer) {
@@ -367,6 +574,16 @@ export function AnnotationCanvas({
     }
 
     const point = stagePointToImagePoint(pointer);
+
+    if (drawTool === "polyline" && draftPolylinePoints.length > 0) {
+      setPreviewPolylinePoint(point);
+      return;
+    }
+
+    if (!draftBox) {
+      return;
+    }
+
     setDraftBox((current) =>
       current
         ? {
@@ -379,7 +596,7 @@ export function AnnotationCanvas({
   }
 
   function handlePointerUp() {
-    if (!draftBox) {
+    if (!draftBox || drawTool !== "box") {
       return;
     }
 
@@ -461,7 +678,7 @@ export function AnnotationCanvas({
           return;
         }
 
-        setAnnotations(nextAnnotations.filter(isBoxAnnotation));
+        setAnnotations(nextAnnotations);
       })
       .catch((error: unknown) => {
         if (!isMounted) {
@@ -489,6 +706,16 @@ export function AnnotationCanvas({
       return;
     }
 
+    const selectedBox = boxAnnotations.find(
+      (annotation) => annotation.id === selectedAnnotationId
+    );
+
+    if (!selectedBox) {
+      transformer.nodes([]);
+      transformer.getLayer()?.batchDraw();
+      return;
+    }
+
     const selectedNode = shapeRefs.current[selectedAnnotationId];
     transformer.nodes(selectedNode ? [selectedNode] : []);
     transformer.getLayer()?.batchDraw();
@@ -496,6 +723,16 @@ export function AnnotationCanvas({
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Enter" && draftPolylinePoints.length >= 2) {
+        finishDraftPolyline();
+        return;
+      }
+
+      if (event.key === "Escape" && draftPolylinePoints.length > 0) {
+        cancelDraftPolyline();
+        return;
+      }
+
       if (event.key === "Delete" || event.key === "Backspace") {
         void handleDeleteSelected();
       }
@@ -520,15 +757,34 @@ export function AnnotationCanvas({
         <div className="flex flex-wrap items-center gap-2">
           <button
             className={`inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm transition ${
-              mode === "draw"
+              mode === "draw" && drawTool === "box"
                 ? "border-emerald-400 bg-emerald-400/10 text-emerald-100"
                 : "border-stone-700 text-stone-200 hover:border-stone-500 hover:bg-stone-900"
             }`}
-            onClick={() => setMode("draw")}
+            onClick={() => {
+              cancelDraftPolyline();
+              setMode("draw");
+              setDrawTool("box");
+            }}
             type="button"
           >
             <Square aria-hidden="true" size={15} />
-            Draw
+            Box
+          </button>
+          <button
+            className={`inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm transition ${
+              mode === "draw" && drawTool === "polyline"
+                ? "border-emerald-400 bg-emerald-400/10 text-emerald-100"
+                : "border-stone-700 text-stone-200 hover:border-stone-500 hover:bg-stone-900"
+            }`}
+            onClick={() => {
+              setMode("draw");
+              setDrawTool("polyline");
+            }}
+            type="button"
+          >
+            <Pencil aria-hidden="true" size={15} />
+            Line
           </button>
           <button
             className={`inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm transition ${
@@ -536,12 +792,37 @@ export function AnnotationCanvas({
                 ? "border-emerald-400 bg-emerald-400/10 text-emerald-100"
                 : "border-stone-700 text-stone-200 hover:border-stone-500 hover:bg-stone-900"
             }`}
-            onClick={() => setMode("pan")}
+            onClick={() => {
+              cancelDraftPolyline();
+              setMode("pan");
+            }}
             type="button"
           >
             <MousePointer2 aria-hidden="true" size={15} />
             Select
           </button>
+          {drawTool === "polyline" ? (
+            <>
+              <button
+                className="inline-flex h-9 items-center justify-center rounded-md bg-emerald-500 px-3 text-sm font-semibold text-stone-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={draftPolylinePoints.length < 2}
+                onClick={finishDraftPolyline}
+                title="Finish polyline"
+                type="button"
+              >
+                <Check aria-hidden="true" size={16} />
+              </button>
+              <button
+                className="inline-flex h-9 items-center justify-center rounded-md border border-stone-700 px-3 text-sm text-stone-200 transition hover:border-stone-500 hover:bg-stone-900"
+                disabled={draftPolylinePoints.length === 0}
+                onClick={cancelDraftPolyline}
+                title="Cancel polyline"
+                type="button"
+              >
+                <X aria-hidden="true" size={16} />
+              </button>
+            </>
+          ) : null}
           <div className="flex h-9 items-center gap-2 rounded-md border border-stone-700 bg-stone-900 px-3 text-xs text-stone-300">
             <Move aria-hidden="true" size={15} />
             <span className="tabular-nums">{zoomPercent}%</span>
@@ -589,7 +870,7 @@ export function AnnotationCanvas({
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-stone-700 text-stone-200 transition hover:border-rose-500 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!selectedAnnotation}
             onClick={() => void handleDeleteSelected()}
-            title="Delete selected box"
+            title="Delete selected annotation"
             type="button"
           >
             <Trash2 aria-hidden="true" size={16} />
@@ -627,10 +908,12 @@ export function AnnotationCanvas({
         </div>
         <div>
           <span className="block text-xs uppercase tracking-[0.12em] text-stone-500">
-            Boxes
+            Annotations
           </span>
           <span className="mt-1 block font-semibold text-white">
-            {annotationsState === "loading" ? "Loading" : boxAnnotations.length}
+            {annotationsState === "loading"
+              ? "Loading"
+              : `${boxAnnotations.length} / ${polylineAnnotations.length}`}
           </span>
         </div>
         <div>
@@ -703,6 +986,57 @@ export function AnnotationCanvas({
               strokeWidth={1 / viewport.scale}
               width={image.width}
             />
+            {polylineAnnotations.map((annotation) => {
+              const labelClass = labelClassById.get(annotation.labelClassId);
+              const color = labelClass?.color ?? "#34d399";
+              const isSelected = selectedAnnotationId === annotation.id;
+
+              return (
+                <Line
+                  hitStrokeWidth={12 / viewport.scale}
+                  key={annotation.id}
+                  lineCap="round"
+                  lineJoin="round"
+                  onClick={(event) => {
+                    event.cancelBubble = true;
+                    setSelectedAnnotationId(annotation.id);
+                    setSelectedVertex(null);
+                    setMode("pan");
+                  }}
+                  onDblClick={(event) => {
+                    event.cancelBubble = true;
+                    const pointer = stageRef.current?.getPointerPosition();
+
+                    if (!pointer) {
+                      return;
+                    }
+
+                    const point = stagePointToImagePoint(pointer);
+                    const points = insertPointAtNearestSegment(
+                      annotation.geometry.points,
+                      point
+                    );
+                    setSelectedAnnotationId(annotation.id);
+                    setSelectedVertex({
+                      annotationId: annotation.id,
+                      index: points.findIndex(
+                        (item) => item.x === point.x && item.y === point.y
+                      )
+                    });
+                    void persistPolylineUpdate(annotation, { points });
+                  }}
+                  onTap={(event) => {
+                    event.cancelBubble = true;
+                    setSelectedAnnotationId(annotation.id);
+                    setSelectedVertex(null);
+                    setMode("pan");
+                  }}
+                  points={flattenPoints(annotation.geometry.points)}
+                  stroke={color}
+                  strokeWidth={(isSelected ? 4 : 3) / viewport.scale}
+                />
+              );
+            })}
             {boxAnnotations.map((annotation) => {
               const labelClass = labelClassById.get(annotation.labelClassId);
               const color = labelClass?.color ?? "#34d399";
@@ -722,6 +1056,7 @@ export function AnnotationCanvas({
                   onClick={(event) => {
                     event.cancelBubble = true;
                     setSelectedAnnotationId(annotation.id);
+                    setSelectedVertex(null);
                     setMode("pan");
                   }}
                   onDragEnd={(event) => {
@@ -739,6 +1074,7 @@ export function AnnotationCanvas({
                   onTap={(event) => {
                     event.cancelBubble = true;
                     setSelectedAnnotationId(annotation.id);
+                    setSelectedVertex(null);
                     setMode("pan");
                   }}
                   onTransformEnd={(event) => {
@@ -795,6 +1131,95 @@ export function AnnotationCanvas({
                 </Label>
               );
             })}
+            {polylineAnnotations.map((annotation) => {
+              const labelClass = labelClassById.get(annotation.labelClassId);
+              const color = labelClass?.color ?? "#34d399";
+              const firstPoint = annotation.geometry.points[0];
+
+              if (!firstPoint) {
+                return null;
+              }
+
+              return (
+                <Label
+                  key={`${annotation.id}:label`}
+                  listening={false}
+                  x={firstPoint.x}
+                  y={Math.max(0, firstPoint.y - 20 / viewport.scale)}
+                >
+                  <Tag fill={color} opacity={0.9} />
+                  <Text
+                    fill="#0c0a09"
+                    fontSize={12 / viewport.scale}
+                    fontStyle="bold"
+                    padding={4 / viewport.scale}
+                    text={labelClass?.name ?? "Class"}
+                  />
+                </Label>
+              );
+            })}
+            {polylineAnnotations.flatMap((annotation) => {
+              if (selectedAnnotationId !== annotation.id) {
+                return [];
+              }
+
+              const color =
+                labelClassById.get(annotation.labelClassId)?.color ?? "#34d399";
+
+              return annotation.geometry.points.map((point, index) => {
+                const isSelectedVertex =
+                  selectedVertex?.annotationId === annotation.id &&
+                  selectedVertex.index === index;
+
+                return (
+                  <Circle
+                    draggable
+                    fill={isSelectedVertex ? "#ffffff" : color}
+                    key={`${annotation.id}:vertex:${index}`}
+                    onClick={(event) => {
+                      event.cancelBubble = true;
+                      setSelectedAnnotationId(annotation.id);
+                      setSelectedVertex({
+                        annotationId: annotation.id,
+                        index
+                      });
+                    }}
+                    onDragEnd={(event) => {
+                      const nextPoint = normalizePoint(
+                        {
+                          x: event.target.x(),
+                          y: event.target.y()
+                        },
+                        image
+                      );
+                      event.target.position(nextPoint);
+                      const points = annotation.geometry.points.map(
+                        (currentPoint, currentIndex) =>
+                          currentIndex === index ? nextPoint : currentPoint
+                      );
+                      setSelectedVertex({
+                        annotationId: annotation.id,
+                        index
+                      });
+                      void persistPolylineUpdate(annotation, { points });
+                    }}
+                    onTap={(event) => {
+                      event.cancelBubble = true;
+                      setSelectedAnnotationId(annotation.id);
+                      setSelectedVertex({
+                        annotationId: annotation.id,
+                        index
+                      });
+                    }}
+                    radius={5 / viewport.scale}
+                    stroke="#052e16"
+                    strokeWidth={1.5 / viewport.scale}
+                    x={point.x}
+                    y={point.y}
+                  />
+                );
+              });
+            })}
             {draftGeometry ? (
               <Rect
                 dash={[6 / viewport.scale, 4 / viewport.scale]}
@@ -807,6 +1232,35 @@ export function AnnotationCanvas({
                 x={draftGeometry.x}
                 y={draftGeometry.y}
               />
+            ) : null}
+            {draftPolylinePoints.length > 0 ? (
+              <>
+                <Line
+                  dash={[6 / viewport.scale, 4 / viewport.scale]}
+                  lineCap="round"
+                  lineJoin="round"
+                  listening={false}
+                  points={flattenPoints(
+                    previewPolylinePoint
+                      ? [...draftPolylinePoints, previewPolylinePoint]
+                      : draftPolylinePoints
+                  )}
+                  stroke={activeClass?.color ?? "#34d399"}
+                  strokeWidth={2 / viewport.scale}
+                />
+                {draftPolylinePoints.map((point, index) => (
+                  <Circle
+                    fill={activeClass?.color ?? "#34d399"}
+                    key={`draft-point:${index}`}
+                    listening={false}
+                    radius={4 / viewport.scale}
+                    stroke="#052e16"
+                    strokeWidth={1 / viewport.scale}
+                    x={point.x}
+                    y={point.y}
+                  />
+                ))}
+              </>
             ) : null}
             <Transformer
               anchorFill="#34d399"
