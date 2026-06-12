@@ -45,11 +45,31 @@ export interface ImageDto {
   updatedAt: string;
 }
 
+export interface LabelClassDto {
+  id: string;
+  projectId: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const projectNameSchema = z
   .string()
   .trim()
   .min(1, "Project name is required.")
   .max(120, "Project name must be 120 characters or fewer.");
+
+export const labelClassNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Class name is required.")
+  .max(80, "Class name must be 80 characters or fewer.");
+
+export const labelClassColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, "Class color must be a hex color.");
 
 export const projectIdParamsSchema = z.object({
   projectId: z.string().cuid("Project id must be a valid cuid.")
@@ -57,6 +77,10 @@ export const projectIdParamsSchema = z.object({
 
 export const imageIdParamsSchema = z.object({
   imageId: z.string().cuid("Image id must be a valid cuid.")
+});
+
+export const labelClassIdParamsSchema = z.object({
+  labelClassId: z.string().cuid("Class id must be a valid cuid.")
 });
 
 export const createProjectRequestSchema = z.object({
@@ -67,5 +91,25 @@ export const renameProjectRequestSchema = z.object({
   name: projectNameSchema
 });
 
+export const createLabelClassRequestSchema = z.object({
+  name: labelClassNameSchema,
+  color: labelClassColorSchema
+});
+
+export const updateLabelClassRequestSchema = z
+  .object({
+    name: labelClassNameSchema.optional(),
+    color: labelClassColorSchema.optional()
+  })
+  .refine((value) => value.name !== undefined || value.color !== undefined, {
+    message: "Class name or color is required."
+  });
+
 export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>;
 export type RenameProjectRequest = z.infer<typeof renameProjectRequestSchema>;
+export type CreateLabelClassRequest = z.infer<
+  typeof createLabelClassRequestSchema
+>;
+export type UpdateLabelClassRequest = z.infer<
+  typeof updateLabelClassRequestSchema
+>;
