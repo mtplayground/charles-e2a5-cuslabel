@@ -26,6 +26,25 @@ export interface ProjectDto {
   updatedAt: string;
 }
 
+export interface ImageMetadataDto {
+  originalName: string;
+  mimeType: string;
+  size: number;
+  imageType?: string;
+}
+
+export interface ImageDto {
+  id: string;
+  projectId: string;
+  storageKey: string;
+  width: number;
+  height: number;
+  metadata: ImageMetadataDto;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const projectNameSchema = z
   .string()
   .trim()
@@ -34,6 +53,10 @@ export const projectNameSchema = z
 
 export const projectIdParamsSchema = z.object({
   projectId: z.string().cuid("Project id must be a valid cuid.")
+});
+
+export const imageIdParamsSchema = z.object({
+  imageId: z.string().cuid("Image id must be a valid cuid.")
 });
 
 export const createProjectRequestSchema = z.object({

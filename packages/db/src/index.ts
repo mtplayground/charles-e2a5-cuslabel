@@ -4,4 +4,4 @@ export {
   getPrismaClient,
   requireDatabaseUrl
 } from "./client.js";
-export type { Image, Project } from "@prisma/client";
+export type { Image, Prisma, Project } from "@prisma/client";
