@@ -8,6 +8,7 @@ import {
   requireObjectStorageConfig
 } from "@cuslabel/storage";
 import { isHttpError } from "./errors.js";
+import { imagesRouter } from "./images.js";
 import { projectsRouter } from "./projects.js";
 
 requireDatabaseUrl();
@@ -21,6 +22,7 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 app.use("/api/projects", projectsRouter);
+app.use("/api", imagesRouter);
 
 app.get("/api/health", async (_req, res, next) => {
   try {

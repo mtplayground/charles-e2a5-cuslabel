@@ -6,6 +6,7 @@ import {
   renameProjectRequestSchema,
   type ProjectDto
 } from "@cuslabel/shared";
+import { deleteObject } from "@cuslabel/storage";
 import { badRequestFromZod, notFound } from "./errors.js";
 
 export const projectsRouter = Router();
@@ -119,6 +120,17 @@ projectsRouter.delete("/:projectId", async (req, res, next) => {
     if (!existing) {
       throw notFound("Project not found.");
     }
+
+    const images = await prisma.image.findMany({
+      where: {
+        projectId: params.data.projectId
+      },
+      select: {
+        storageKey: true
+      }
+    });
+
+    await Promise.all(images.map((image) => deleteObject(image.storageKey)));
 
     await prisma.project.delete({
       where: {
