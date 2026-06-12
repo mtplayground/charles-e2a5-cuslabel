@@ -25,7 +25,23 @@ model Project {
   annotationCount  Int      @default(0) @map("annotation_count")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
+  images           Image[]
 
   @@index([createdAt], map: "projects_created_at_idx")
   @@map("projects")
+}
+
+model Image {
+  id         String   @id @default(cuid())
+  projectId  String   @map("project_id")
+  storageKey String   @unique @map("storage_key")
+  width      Int
+  height     Int
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt], map: "images_project_id_created_at_idx")
+  @@map("images")
 }
