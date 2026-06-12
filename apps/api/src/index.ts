@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import "dotenv/config";
 import express, { type ErrorRequestHandler } from "express";
@@ -25,6 +28,8 @@ requireObjectStorageConfig();
 const app = express();
 const port = Number(process.env.PORT ?? "8080");
 const host = process.env.HOST ?? "0.0.0.0";
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const webDistPath = resolve(currentDir, "../../web/dist");
 
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
@@ -61,6 +66,13 @@ app.use("/api", (_req, _res, next) => {
   next(new HttpError(404, "API route not found."));
 });
 
+if (existsSync(webDistPath)) {
+  app.use(express.static(webDistPath));
+  app.get("*", (_req, res) => {
+    res.sendFile(resolve(webDistPath, "index.html"));
+  });
+}
+
 const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
   if (res.headersSent) {
     next(err);
@@ -73,10 +85,23 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
     : 500;
 
   if (statusCode >= 500) {
-    console.error("Unhandled API error", {
+    const errorRecord =
+      err && typeof err === "object" ? (err as Record<string, unknown>) : {};
+    const metadata =
+      "$metadata" in errorRecord &&
+      errorRecord.$metadata &&
+      typeof errorRecord.$metadata === "object"
+        ? (errorRecord.$metadata as Record<string, unknown>)
+        : {};
+
+    console.error("[api error]", {
       name: err instanceof Error ? err.name : "UnknownError",
+      code: "code" in errorRecord ? errorRecord.code : undefined,
       message: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined
+      httpStatus: metadata.httpStatusCode,
+      stack: err instanceof Error
+        ? err.stack?.split("\n").slice(0, 5).join("\n")
+        : undefined
     });
   }
 
