@@ -20,6 +20,10 @@ export function notFound(message: string): HttpError {
   return new HttpError(404, message);
 }
 
+export function conflict(message: string): HttpError {
+  return new HttpError(409, message);
+}
+
 export function isHttpError(error: unknown): error is HttpError {
   return error instanceof HttpError;
 }
