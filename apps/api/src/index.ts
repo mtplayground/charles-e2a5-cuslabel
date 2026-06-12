@@ -9,6 +9,7 @@ import {
 } from "@cuslabel/storage";
 import { annotationsRouter } from "./annotations.js";
 import { isHttpError } from "./errors.js";
+import { exportsRouter } from "./exports.js";
 import { imagesRouter } from "./images.js";
 import { labelClassesRouter } from "./labelClasses.js";
 import { projectsRouter } from "./projects.js";
@@ -27,6 +28,7 @@ app.use("/api/projects", projectsRouter);
 app.use("/api", imagesRouter);
 app.use("/api", labelClassesRouter);
 app.use("/api", annotationsRouter);
+app.use("/api", exportsRouter);
 
 app.get("/api/health", async (_req, res, next) => {
   try {
