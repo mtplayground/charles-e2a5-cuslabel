@@ -1,5 +1,6 @@
 import {
   ChevronRight,
+  Download,
   FolderOpen,
   ImageIcon,
   ImageOff,
@@ -690,6 +691,37 @@ export function App() {
                     {galleryError}
                   </div>
                 ) : null}
+
+                <section className="rounded-lg border border-stone-800 bg-stone-950 p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-300">
+                        <Download aria-hidden="true" size={15} />
+                        Export
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-stone-300">
+                        <span className="rounded-md bg-stone-900 px-2 py-2">
+                          {selectedProject.imageCount} Images
+                        </span>
+                        <span className="rounded-md bg-stone-900 px-2 py-2">
+                          {selectedProject.labelClassCount} Classes
+                        </span>
+                        <span className="rounded-md bg-stone-900 px-2 py-2">
+                          {selectedProject.annotationCount} Annotations
+                        </span>
+                      </div>
+                    </div>
+
+                    <a
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-emerald-500 px-3 text-sm font-semibold text-stone-950 transition hover:bg-emerald-400"
+                      download
+                      href={`/api/projects/${selectedProject.id}/exports/coco`}
+                    >
+                      <Download aria-hidden="true" size={16} />
+                      COCO JSON
+                    </a>
+                  </div>
+                </section>
 
                 <section className="rounded-lg border border-stone-800 bg-stone-950 p-4">
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
