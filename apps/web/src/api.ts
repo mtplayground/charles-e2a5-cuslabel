@@ -1,5 +1,6 @@
 import type {
   CreateProjectRequest,
+  ImageDto,
   ProjectDto,
   RenameProjectRequest
 } from "@cuslabel/shared";
@@ -10,6 +11,10 @@ interface ProjectsResponse {
 
 interface ProjectResponse {
   project: ProjectDto;
+}
+
+interface ImagesResponse {
+  images: ImageDto[];
 }
 
 export class ApiError extends Error {
@@ -105,4 +110,13 @@ export async function deleteProject(projectId: string): Promise<void> {
 
     throw new ApiError(response.status, message, details);
   }
+}
+
+export async function listProjectImages(
+  projectId: string
+): Promise<ImageDto[]> {
+  const response = await requestJson<ImagesResponse>(
+    `/api/projects/${projectId}/images`
+  );
+  return response.images;
 }
