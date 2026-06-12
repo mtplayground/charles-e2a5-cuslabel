@@ -1,5 +1,4 @@
 import {
-  Check,
   ChevronRight,
   FolderOpen,
   ImageIcon,
@@ -36,6 +35,7 @@ import {
   renameProject,
   updateLabelClass
 } from "./api";
+import { AnnotationCanvas } from "./AnnotationCanvas";
 
 type LoadState = "idle" | "loading" | "ready";
 
@@ -892,8 +892,8 @@ export function App() {
                     No images
                   </div>
                 ) : (
-                  <div className="grid flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-                    <div className="grid content-start gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                  <div className="grid flex-1 gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
+                    <div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-1">
                       {images.map((image) => {
                         const isSelectedImage = selectedImageId === image.id;
 
@@ -947,88 +947,14 @@ export function App() {
                       })}
                     </div>
 
-                    <aside className="rounded-lg border border-stone-800 bg-stone-950 p-4">
+                    <section className="min-w-0">
                       {selectedImage ? (
-                        <div className="flex h-full flex-col">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-xs font-medium uppercase tracking-[0.14em] text-emerald-300">
-                                Open Image
-                              </p>
-                              <h3 className="mt-2 break-words text-lg font-semibold text-white">
-                                {selectedImage.metadata.originalName}
-                              </h3>
-                            </div>
-                            <Check
-                              aria-hidden="true"
-                              className="mt-1 shrink-0 text-emerald-300"
-                              size={20}
-                            />
-                          </div>
-
-                          <div className="mt-4 overflow-hidden rounded-md border border-stone-800 bg-stone-900">
-                            <img
-                              alt={selectedImage.metadata.originalName}
-                              className="aspect-[4/3] w-full object-contain"
-                              src={selectedImage.url}
-                            />
-                          </div>
-
-                          <dl className="mt-4 grid gap-3">
-                            <div className="flex items-center justify-between border-b border-stone-800 pb-3">
-                              <dt className="text-sm text-stone-400">
-                                Active class
-                              </dt>
-                              <dd className="flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
-                                {activeClass ? (
-                                  <>
-                                    <span
-                                      aria-hidden="true"
-                                      className="h-4 w-4 shrink-0 rounded border border-white/20"
-                                      style={{
-                                        backgroundColor: activeClass.color
-                                      }}
-                                    />
-                                    <span className="truncate">
-                                      {activeClass.name}
-                                    </span>
-                                  </>
-                                ) : (
-                                  "None"
-                                )}
-                              </dd>
-                            </div>
-                            <div className="flex items-center justify-between border-b border-stone-800 pb-3">
-                              <dt className="text-sm text-stone-400">Status</dt>
-                              <dd className="text-sm font-semibold text-amber-200">
-                                Pending
-                              </dd>
-                            </div>
-                            <div className="flex items-center justify-between border-b border-stone-800 pb-3">
-                              <dt className="text-sm text-stone-400">Size</dt>
-                              <dd className="text-sm font-semibold text-white">
-                                {selectedImage.width} x {selectedImage.height}
-                              </dd>
-                            </div>
-                            <div className="flex items-center justify-between border-b border-stone-800 pb-3">
-                              <dt className="text-sm text-stone-400">Type</dt>
-                              <dd className="text-sm font-semibold text-white">
-                                {selectedImage.metadata.imageType ??
-                                  selectedImage.metadata.mimeType}
-                              </dd>
-                            </div>
-                            <div className="flex flex-col gap-1 pt-1">
-                              <dt className="text-sm text-stone-400">
-                                Uploaded
-                              </dt>
-                              <dd className="text-sm font-medium text-white">
-                                {formatDate(selectedImage.createdAt)}
-                              </dd>
-                            </div>
-                          </dl>
-                        </div>
+                        <AnnotationCanvas
+                          activeClass={activeClass}
+                          image={selectedImage}
+                        />
                       ) : (
-                        <div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-stone-700 px-5 text-center text-sm text-stone-400">
+                        <div className="flex min-h-[34rem] flex-col items-center justify-center rounded-md border border-dashed border-stone-700 bg-stone-950 px-5 text-center text-sm text-stone-400">
                           <ImageIcon
                             aria-hidden="true"
                             className="mb-3 text-stone-500"
@@ -1037,7 +963,7 @@ export function App() {
                           No image open
                         </div>
                       )}
-                    </aside>
+                    </section>
                   </div>
                 )}
               </div>
