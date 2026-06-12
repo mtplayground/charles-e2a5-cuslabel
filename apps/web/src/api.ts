@@ -1,8 +1,11 @@
 import type {
+  CreateLabelClassRequest,
   CreateProjectRequest,
   ImageDto,
+  LabelClassDto,
   ProjectDto,
-  RenameProjectRequest
+  RenameProjectRequest,
+  UpdateLabelClassRequest
 } from "@cuslabel/shared";
 
 interface ProjectsResponse {
@@ -15,6 +18,14 @@ interface ProjectResponse {
 
 interface ImagesResponse {
   images: ImageDto[];
+}
+
+interface LabelClassesResponse {
+  classes: LabelClassDto[];
+}
+
+interface LabelClassResponse {
+  class: LabelClassDto;
 }
 
 export class ApiError extends Error {
@@ -119,4 +130,65 @@ export async function listProjectImages(
     `/api/projects/${projectId}/images`
   );
   return response.images;
+}
+
+export async function listProjectClasses(
+  projectId: string
+): Promise<LabelClassDto[]> {
+  const response = await requestJson<LabelClassesResponse>(
+    `/api/projects/${projectId}/classes`
+  );
+  return response.classes;
+}
+
+export async function createLabelClass(
+  projectId: string,
+  input: CreateLabelClassRequest
+): Promise<LabelClassDto> {
+  const response = await requestJson<LabelClassResponse>(
+    `/api/projects/${projectId}/classes`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  );
+  return response.class;
+}
+
+export async function updateLabelClass(
+  labelClassId: string,
+  input: UpdateLabelClassRequest
+): Promise<LabelClassDto> {
+  const response = await requestJson<LabelClassResponse>(
+    `/api/classes/${labelClassId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    }
+  );
+  return response.class;
+}
+
+export async function deleteLabelClass(labelClassId: string): Promise<void> {
+  const response = await fetch(`/api/classes/${labelClassId}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}.`;
+    let details: unknown;
+
+    try {
+      const body = (await response.json()) as {
+        error?: string;
+        details?: unknown;
+      };
+      message = body.error ?? message;
+      details = body.details;
+    } catch {
+      details = undefined;
+    }
+
+    throw new ApiError(response.status, message, details);
+  }
 }
