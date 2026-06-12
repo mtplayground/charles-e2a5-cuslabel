@@ -340,6 +340,19 @@ export function App() {
     );
   }
 
+  function updateAnnotationCount(projectId: string, delta: number) {
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === projectId
+          ? {
+              ...project,
+              annotationCount: Math.max(0, project.annotationCount + delta)
+            }
+          : project
+      )
+    );
+  }
+
   async function handleCreateClass(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const parsed = createLabelClassRequestSchema.safeParse({
@@ -952,6 +965,8 @@ export function App() {
                         <AnnotationCanvas
                           activeClass={activeClass}
                           image={selectedImage}
+                          labelClasses={labelClasses}
+                          onAnnotationCountChange={updateAnnotationCount}
                         />
                       ) : (
                         <div className="flex min-h-[34rem] flex-col items-center justify-center rounded-md border border-dashed border-stone-700 bg-stone-950 px-5 text-center text-sm text-stone-400">

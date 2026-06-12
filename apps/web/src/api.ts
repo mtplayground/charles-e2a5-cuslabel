@@ -1,10 +1,13 @@
 import type {
+  AnnotationDto,
+  CreateAnnotationRequest,
   CreateLabelClassRequest,
   CreateProjectRequest,
   ImageDto,
   LabelClassDto,
   ProjectDto,
   RenameProjectRequest,
+  UpdateAnnotationRequest,
   UpdateLabelClassRequest
 } from "@cuslabel/shared";
 
@@ -26,6 +29,14 @@ interface LabelClassesResponse {
 
 interface LabelClassResponse {
   class: LabelClassDto;
+}
+
+interface AnnotationsResponse {
+  annotations: AnnotationDto[];
+}
+
+interface AnnotationResponse {
+  annotation: AnnotationDto;
 }
 
 export class ApiError extends Error {
@@ -70,6 +81,31 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function requestNoContent(
+  path: string,
+  init?: RequestInit
+): Promise<void> {
+  const response = await fetch(path, init);
+
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}.`;
+    let details: unknown;
+
+    try {
+      const body = (await response.json()) as {
+        error?: string;
+        details?: unknown;
+      };
+      message = body.error ?? message;
+      details = body.details;
+    } catch {
+      details = undefined;
+    }
+
+    throw new ApiError(response.status, message, details);
+  }
+}
+
 export async function listProjects(): Promise<ProjectDto[]> {
   const response = await requestJson<ProjectsResponse>("/api/projects");
   return response.projects;
@@ -100,27 +136,9 @@ export async function renameProject(
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-  const response = await fetch(`/api/projects/${projectId}`, {
+  await requestNoContent(`/api/projects/${projectId}`, {
     method: "DELETE"
   });
-
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}.`;
-    let details: unknown;
-
-    try {
-      const body = (await response.json()) as {
-        error?: string;
-        details?: unknown;
-      };
-      message = body.error ?? message;
-      details = body.details;
-    } catch {
-      details = undefined;
-    }
-
-    throw new ApiError(response.status, message, details);
-  }
 }
 
 export async function listProjectImages(
@@ -170,25 +188,50 @@ export async function updateLabelClass(
 }
 
 export async function deleteLabelClass(labelClassId: string): Promise<void> {
-  const response = await fetch(`/api/classes/${labelClassId}`, {
+  await requestNoContent(`/api/classes/${labelClassId}`, {
     method: "DELETE"
   });
+}
 
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}.`;
-    let details: unknown;
+export async function listImageAnnotations(
+  imageId: string
+): Promise<AnnotationDto[]> {
+  const response = await requestJson<AnnotationsResponse>(
+    `/api/images/${imageId}/annotations`
+  );
+  return response.annotations;
+}
 
-    try {
-      const body = (await response.json()) as {
-        error?: string;
-        details?: unknown;
-      };
-      message = body.error ?? message;
-      details = body.details;
-    } catch {
-      details = undefined;
+export async function createAnnotation(
+  imageId: string,
+  input: CreateAnnotationRequest
+): Promise<AnnotationDto> {
+  const response = await requestJson<AnnotationResponse>(
+    `/api/images/${imageId}/annotations`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
     }
+  );
+  return response.annotation;
+}
 
-    throw new ApiError(response.status, message, details);
-  }
+export async function updateAnnotation(
+  annotationId: string,
+  input: UpdateAnnotationRequest
+): Promise<AnnotationDto> {
+  const response = await requestJson<AnnotationResponse>(
+    `/api/annotations/${annotationId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    }
+  );
+  return response.annotation;
+}
+
+export async function deleteAnnotation(annotationId: string): Promise<void> {
+  await requestNoContent(`/api/annotations/${annotationId}`, {
+    method: "DELETE"
+  });
 }
